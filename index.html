@@ -1,0 +1,703 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Google Review Store Tracker</title>
+<meta name="description" content="Google Review performance by store, with focus on negative reviews. Live from Google Sheets.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* Layout: sticky filter bar, summary tiles, two trend charts, issue themes + region, store league table, open queue, review explorer, method notes */
+/* Light, single theme. Navy ink + slate neutrals, muted semantic tones. Layout: header band, sticky filter bar, summary tiles, trend charts, issues + region, store league table, open queue, review explorer, method notes */
+:root{
+  --bg:#f6f8fb; --surface:#ffffff; --ink:#1b2533; --muted:#5f6b7a; --faint:#8a95a3; --line:#e2e6eb; --line-strong:#cfd5dc;
+  --accent:#2f6bdc; --accent-soft:#ebf2fe; --header:#1a2b4a;
+  --bad:#e5533d; --esc:#9b4dca; --mixed:#f0a830; --neutral:#a3afbd; --good:#20a86b;
+  --bad-soft:#fdeeeb; --esc-soft:#f5edfb; --mixed-soft:#fef5e4; --good-soft:#e6f6ee; --neutral-soft:#eef2f6;
+  --display:"IBM Plex Sans Thai",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --body:"IBM Plex Sans Thai",system-ui,-apple-system,"Segoe UI",sans-serif;
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);border-top:4px solid var(--accent);color:var(--ink);font-family:var(--body);font-size:14px;line-height:1.5}
+h1,h2,h3{font-family:var(--display);text-wrap:balance;margin:0}
+.wrap{max-width:1320px;margin:0 auto;padding:0 20px 48px}
+header.top{padding:26px 0 18px;display:flex;flex-wrap:wrap;gap:12px 24px;align-items:flex-end;justify-content:space-between}
+header.top h1{font-size:24px;font-weight:600;letter-spacing:-.2px;color:var(--header)}
+.eyebrow{font-size:11px;letter-spacing:1.4px;text-transform:uppercase;color:var(--faint);font-weight:600;margin-bottom:4px}
+header.top p{margin:2px 0 0;color:var(--muted)}
+.asof{font-size:12px;color:var(--muted);text-align:right}
+.hdr-right{display:flex;align-items:center;gap:12px}
+.pillbtn:disabled{opacity:.6;cursor:wait}
+.loadstatus{display:none;margin-top:12px;padding:10px 14px;border-radius:6px;background:var(--accent-soft);color:var(--accent);font-size:13px}
+.loadstatus.show{display:block}
+.loadstatus.err{background:var(--bad-soft);color:var(--bad)}
+.filters{position:sticky;top:0;z-index:5;background:rgba(246,248,251,.96);backdrop-filter:blur(4px);padding:10px 0;border-bottom:1px solid var(--line);display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center}
+.fgroup{display:flex;align-items:center;gap:6px}
+.fgroup label{font-size:12px;color:var(--muted)}
+select,input[type=search]{font:inherit;font-size:13px;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:5px 8px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:7px;overflow:hidden;background:var(--surface)}
+.seg button{font:inherit;font-size:12.5px;border:0;background:transparent;color:var(--muted);padding:5px 10px;cursor:pointer}
+.seg button+button{border-left:1px solid var(--line)}
+.seg button.on{background:var(--accent);color:#fff;font-weight:500}
+button:focus-visible,select:focus-visible,input:focus-visible,tr:focus-visible,.chip:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.pillbtn{font:inherit;font-size:12.5px;border:1px solid var(--line-strong);color:var(--accent);background:var(--surface);border-radius:6px;padding:3px 10px;cursor:pointer}
+.focusbar{display:none;gap:8px;align-items:center;flex-wrap:wrap;margin-top:12px}
+.focusbar.show{display:flex}
+.focusbar span{color:var(--muted);font-size:12.5px}
+section{margin-top:22px}
+.sechead{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:10px}
+.sechead h2{font-size:15px;font-weight:600;color:var(--header)}
+.sechead p{margin:0;color:var(--muted);font-size:12.5px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:18px 20px;box-shadow:0 1px 2px rgba(27,37,51,.04)}
+.tiles{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px}
+.tile{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:14px 16px 13px;position:relative;overflow:hidden;box-shadow:0 1px 2px rgba(27,37,51,.04)}
+.tile::before{content:"";position:absolute;left:0;right:0;top:0;height:3px;background:var(--line)}
+.tile.t-bad::before{background:var(--bad)} .tile.t-esc::before{background:var(--esc)} .tile.t-mixed::before{background:var(--mixed)} .tile.t-acc::before{background:var(--accent)}
+.tile .k{font-size:11px;letter-spacing:.6px;text-transform:uppercase;font-weight:600;color:var(--faint)}
+.tile .v{font-family:var(--display);font-size:28px;font-weight:600;color:var(--header);font-variant-numeric:tabular-nums;line-height:1.15;margin-top:4px}
+.tile .s{font-size:12px;color:var(--muted);margin-top:2px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.grid32{display:grid;grid-template-columns:3fr 2fr;gap:14px}
+.chart svg{width:100%;height:auto;display:block}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12px;color:var(--muted);margin-top:8px}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+.legend i.line{height:3px;border-radius:2px;vertical-align:3px}
+.hbar{display:grid;grid-template-columns:minmax(150px,210px) 1fr 74px;gap:8px;align-items:center;padding:4px 6px;border-radius:6px;cursor:pointer}
+.hbar:hover,.hbar.on{background:var(--accent-soft)}
+.hbar .lab{font-size:13px}
+.hbar .track{height:12px;background:var(--neutral-soft);border-radius:3px;overflow:hidden}
+.hbar .fill{height:100%;background:var(--accent);border-radius:3px}
+.hbar .num{font-size:12.5px;text-align:right;font-variant-numeric:tabular-nums;color:var(--muted)}
+.hbar .num b{color:var(--ink);font-weight:600}
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:6px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th,td{padding:8px 8px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
+th{font-size:10.5px;letter-spacing:.3px;text-transform:uppercase;font-weight:600;color:var(--faint);background:#f9fafb;border-bottom:1px solid var(--line-strong);position:sticky;top:0;cursor:pointer;user-select:none}
+th.num,td.num{text-align:right;font-variant-numeric:tabular-nums}
+th .arr{opacity:.5;font-size:10px;margin-left:3px}
+tbody tr{cursor:pointer}
+tbody tr:hover{background:#f7f9fb}
+tbody tr.sel{background:var(--accent-soft);box-shadow:inset 3px 0 0 var(--accent)}
+td.store{white-space:normal;min-width:200px}
+td.store small{display:block;color:var(--muted);font-size:11.5px}
+.cap{white-space:nowrap;font-size:10.5px;border:1px solid var(--line);color:var(--muted);border-radius:4px;padding:0 4px;margin-left:4px;vertical-align:1px}
+.negbar{display:inline-flex;align-items:center;gap:6px;justify-content:flex-end;width:100%}
+.negbar .trk{width:48px;height:8px;background:var(--neutral-soft);border-radius:2px;overflow:hidden}
+.negbar .fl{height:100%;background:var(--bad)}
+.status{display:inline-block;font-size:11px;font-weight:600;border-radius:4px;padding:1px 8px;letter-spacing:.2px}
+.st-crit{background:var(--bad-soft);color:var(--bad)} .st-watch{background:var(--mixed-soft);color:#a86b00} .st-ok{background:var(--good-soft);color:var(--good)} .st-na{background:var(--neutral-soft);color:var(--muted)}
+.tag{display:inline-block;font-size:11px;font-weight:600;border-radius:4px;padding:0 6px;line-height:18px}
+.ty-Bad{background:var(--bad-soft);color:var(--bad)} .ty-Escalate{background:var(--esc-soft);color:var(--esc)} .ty-Mixed{background:var(--mixed-soft);color:#a86b00} .ty-Neutral{background:var(--neutral-soft);color:var(--muted)} .ty-Good{background:var(--good-soft);color:var(--good)}
+.pri{font-size:11px;font-weight:700;font-variant-numeric:tabular-nums}
+.pri.P1{color:var(--bad)} .pri.P2{color:#c98500} .pri.P3{color:var(--muted)}
+.overdue{color:var(--bad);font-weight:600}
+.reviews{display:grid;gap:10px}
+.rev{background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--line);border-radius:4px;padding:12px 14px}
+.rev.Bad{border-left-color:var(--bad)} .rev.Escalate{border-left-color:var(--esc)} .rev.Mixed{border-left-color:var(--mixed)} .rev.Neutral{border-left-color:var(--neutral)}
+.rev .meta{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center;font-size:12px;color:var(--muted)}
+.rev .meta b{color:var(--ink);font-weight:600}
+.stars{color:#f5b301;letter-spacing:1px;font-size:12px}
+.stars .off{color:var(--line)}
+.rev .txt{margin:8px 0 6px;white-space:pre-wrap;overflow-wrap:anywhere;max-width:95ch}
+.rev .txt.clamp{display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
+.rev .txt.empty{color:var(--muted);font-style:italic}
+mark{background:var(--mixed-soft);color:inherit;border-radius:2px;padding:0 1px;box-shadow:inset 0 -2px 0 var(--mixed)}
+mark.sens{background:var(--esc-soft);box-shadow:inset 0 -2px 0 var(--esc)}
+.chips{display:flex;flex-wrap:wrap;gap:5px}
+.chip{font-size:11.5px;border:1px solid var(--line);border-radius:4px;padding:0 8px;color:var(--muted);background:transparent;font-family:inherit;cursor:pointer}
+.linkbtn{font:inherit;font-size:12px;color:var(--accent);background:none;border:0;padding:0;cursor:pointer;text-decoration:underline}
+.reply{margin-top:8px;font-size:12.5px;color:var(--muted);border-top:1px dashed var(--line);padding-top:6px;white-space:pre-wrap;overflow-wrap:anywhere;max-width:95ch}
+.more{display:flex;justify-content:center;margin-top:12px}
+.notes{columns:2;column-gap:28px;font-size:13px;color:var(--muted)}
+.notes p{margin:0 0 10px;break-inside:avoid}
+.notes b{color:var(--ink)}
+.rules{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin-bottom:14px}
+.rule{border:1px solid var(--line);border-radius:4px;padding:8px 10px;font-size:12px;color:var(--muted)}
+.rule .tag{margin-bottom:4px}
+.empty-note{color:var(--muted);font-size:13px;padding:10px 0}
+.regrow{display:grid;grid-template-columns:120px 1fr 92px;gap:8px;align-items:center;padding:5px 6px;border-radius:6px;cursor:pointer}
+.regrow:hover,.regrow.on{background:var(--accent-soft)}
+@media (max-width:1100px){.tiles{grid-template-columns:repeat(3,minmax(0,1fr))}.rules{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:820px){.grid2,.grid32{grid-template-columns:1fr}.notes{columns:1}}
+@media (max-width:480px){.tiles{grid-template-columns:repeat(2,minmax(0,1fr))}.wrap{padding:0 16px 40px}.hbar{grid-template-columns:120px 1fr 64px}}
+@media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <div class="eyebrow">Customer Experience · Store performance</div>
+      <h1>Google Review Store Tracker</h1>
+      <p>Supersports group stores on Google Maps, routed with the CX review logic. Focus: negative reviews per store.</p>
+    </div>
+    <div class="hdr-right"><div class="asof" id="asof">Loading data…</div><button class="pillbtn" id="refreshBtn" type="button">Refresh data</button></div>
+  </header>
+
+  <div class="filters" role="region" aria-label="Filters">
+    <div class="fgroup"><label>Period</label>
+      <div class="seg" id="periodSeg">
+        <button data-v="30">30 days</button><button data-v="90">90 days</button><button data-v="ytd">2026 YTD</button><button data-v="365" class="on">12 months</button><button data-v="all">All time</button>
+      </div>
+    </div>
+    <div class="fgroup"><label for="brandSel">Brand</label><select id="brandSel"></select></div>
+    <div class="fgroup"><label for="regionSel">Region</label><select id="regionSel"></select></div>
+    <div class="fgroup"><label for="storeSel">Store</label><select id="storeSel" style="max-width:260px"></select></div>
+    <div class="fgroup"><label>Count as negative</label>
+      <div class="seg" id="scopeSeg">
+        <button data-v="neg" class="on" title="1 and 2 star reviews, plus any review with a sensitive word">1 to 2 star + sensitive</button><button data-v="queue" title="Adds 3 star and 4 to 5 star reviews flagged by a risk word">All agent queue</button>
+      </div>
+    </div>
+  </div>
+  <div class="loadstatus" id="loadStatus" role="status"></div>
+  <div class="focusbar" id="focusbar"></div>
+
+  <section>
+    <div class="tiles" id="tiles"></div>
+  </section>
+
+  <section class="grid2">
+    <div class="card chart">
+      <div class="sechead"><h2>Reviews needing an agent, by month</h2><p id="trendNote"></p></div>
+      <div id="trendChart"></div>
+      <div class="legend">
+        <span><i style="background:var(--esc)"></i>Bad, escalate (sensitive word)</span>
+        <span><i style="background:var(--bad)"></i>Bad (1 to 2 star)</span>
+        <span><i style="background:var(--neutral)"></i>Neutral (3 star)</span>
+        <span><i style="background:var(--mixed)"></i>Mixed (4 to 5 star with risk word)</span>
+        <span><i class="line" style="background:var(--ink)"></i>Negative share of all reviews</span>
+      </div>
+    </div>
+    <div class="card chart">
+      <div class="sechead"><h2>First reply to negative reviews</h2><p>Against the logic deadlines</p></div>
+      <div id="slaChart"></div>
+      <div class="legend">
+        <span><i style="background:var(--good)"></i>Replied within deadline</span>
+        <span><i style="background:var(--mixed)"></i>Replied late</span>
+        <span><i style="background:var(--bad)"></i>No reply yet</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="grid32">
+    <div class="card">
+      <div class="sechead"><h2>What negative reviews are about</h2><p>Share of negative reviews mentioning each issue. Click to filter.</p></div>
+      <div id="themes"></div>
+    </div>
+    <div class="card">
+      <div class="sechead"><h2>Negative share by region</h2><p>Click to filter</p></div>
+      <div id="regions"></div>
+      <div class="sechead" style="margin-top:16px"><h2>Star mix</h2><p id="starNote"></p></div>
+      <div id="starmix"></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sechead"><h2>Store league table</h2><p>Sorted by most urgent first. Click a store to focus the whole page on it.</p></div>
+    <div class="tablewrap" style="max-height:560px"><table id="storeTbl"><thead></thead><tbody></tbody></table></div>
+    <p class="sechead" style="margin-top:8px"><span style="color:var(--muted);font-size:12px"><span class="status st-crit">Critical</span> an open P1 review past its deadline, or negative share 40% or more with at least 3 negatives. <span class="status st-watch">Watch</span> negative share 20% or more, or any negative review still without a reply. <span class="status st-ok">On track</span> otherwise. <span class="cap">20 max</span> Google Takeout exported only the latest 20 reviews for this store.</span></p>
+  </section>
+
+  <section>
+    <div class="sechead"><h2>Open queue: reviews without a reply</h2><p id="queueNote"></p></div>
+    <div class="tablewrap" style="max-height:420px"><table id="queueTbl"><thead><tr><th>Priority</th><th>Type</th><th>Store</th><th class="num">Stars</th><th>Posted</th><th>Deadline</th><th class="num">Waiting</th><th>Issue</th></tr></thead><tbody></tbody></table></div>
+  </section>
+
+  <section>
+    <div class="sechead"><h2>Review explorer</h2><p id="revNote"></p></div>
+    <div class="fgroup" style="margin-bottom:10px;flex-wrap:wrap;gap:8px">
+      <div class="seg" id="revTypeSeg">
+        <button data-v="all" class="on">All in scope</button><button data-v="Escalate">Escalate</button><button data-v="Bad">Bad</button><button data-v="Neutral">Neutral</button><button data-v="Mixed">Mixed</button>
+      </div>
+      <div class="seg" id="revReplySeg">
+        <button data-v="all" class="on">Any reply status</button><button data-v="open">No reply</button><button data-v="late">Replied late</button>
+      </div>
+      <input type="search" id="revSearch" placeholder="Search review text" aria-label="Search review text" style="min-width:220px">
+    </div>
+    <div class="reviews" id="reviews"></div>
+    <div class="more"><button class="pillbtn" id="moreBtn">Show 30 more</button></div>
+  </section>
+
+  <section>
+    <div class="sechead"><h2>How reviews are classified</h2><p>From the Review Logic file. Text beats stars.</p></div>
+    <div class="card">
+      <div class="rules">
+        <div class="rule"><span class="tag ty-Escalate">Bad, escalate</span><br>Any star with a sensitive word. P1, reply in 4 working hours, CX manager involved.</div>
+        <div class="rule"><span class="tag ty-Bad">Bad</span><br>1 star: P1, 4 working hours. 2 star: P2, 24 h.</div>
+        <div class="rule"><span class="tag ty-Neutral">Neutral</span><br>3 star, any text. P3, 24 h.</div>
+        <div class="rule"><span class="tag ty-Mixed">Mixed</span><br>4 or 5 star with a risk word. Agent, P3, 24 h.</div>
+        <div class="rule"><span class="tag ty-Good">Good</span><br>4 or 5 star, no risk word or empty. AI auto reply, P4, 24 h.</div>
+      </div>
+      <div class="notes" id="notes"></div>
+    </div>
+  </section>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script>
+// ================= Data source: published Google Sheet (CSV) =================
+const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQx7XVNxeUr523Ppeo_ahFbrkM2yS0j-W8N-PdugTzJFk4CgEaLqd3pzriB66lKBksmDq-KesILC6zz/pub?gid=2099351013&single=true&output=csv";
+
+// ================= Review logic (from Review_Logic.xlsx) and issue themes =================
+const CFG = {"riskTh": ["แย่", "ไม่ประทับใจ", "ผิดหวัง", "ช้า", "รอนาน", "หยาบคาย", "พูดจาไม่ดี", "หน้าบึ้ง", "ชักสีหน้า", "ไม่สนใจลูกค้า", "ไม่มีพนักงาน", "เล่นโทรศัพท์", "ยืนคุยกัน", "ไม่มีไซซ์", "เปลี่ยนไม่ได้", "คืนไม่ได้", "คืนเงิน", "ชำรุด", "พัง", "ราคาไม่ตรง", "ป้ายราคา", "โปรไม่ตรง", "ขึ้นเอ็น", "โทรไม่ติด", "ไม่รับสาย", "แต้มไม่เข้า", "ใบกำกับภาษี", "แพง", "แต่"], "riskEn": ["bad", "worst", "disappointed", "slow", "wait", "rude", "ignored", "unfriendly", "no one", "on their phone", "no size", "refund", "return", "exchange", "broken", "defect", "wrong price", "overcharged", "tag", "stringing", "restring", "no answer", "points", "tax refund", "expensive", "but"], "sensTh": ["ของปลอม", "ปลอม", "โกง", "หลอกลวง", "เหยียด", "ดูถูก", "เลือกปฏิบัติ", "คนพิการ", "เดินตาม", "ล่วงละเมิด", "บาดเจ็บ", "ตรวจค้น", "ค้นกระเป๋า", "บัตรเครดิต", "สคบ.", "ฟ้อง", "ทนาย", "แจ้งความ", "ตำรวจ", "ข้อมูลส่วนตัว", "จะโพสต์ให้ดัง"], "sensEn": ["fake", "counterfeit", "scam", "fraud", "credit card", "cheat", "racist", "discrimination", "treated like a criminal", "followed me", "harassment", "injured", "searched", "police", "lawyer", "sue", "consumer protection", "privacy", "going viral"], "thFalse": ["เช้า", "ช้าง", "พังงา", "แต่ง", "แต่ละ", "ตั้งแต่"], "themes": [["Discrimination & security", ["racist", "discriminat", "criminal", "followed me", "harass", "searched my", "เหยียด", "ดูถูก", "เลือกปฏิบัติ", "เดินตาม", "ค้นกระเป๋า", "look down on", "looked down", "judg"]], ["Counterfeit & fraud claims", ["no original", "not original", "fake", "counterfeit", "scam", "fraud", "cheat", "lying", "ของปลอม", "ปลอม", "โกง", "หลอก"]], ["Online order & delivery", ["online", "delivery", "deliver", "shipping", "shipped", "parcel", "สั่งออนไลน์", "ส่งของ", "จัดส่ง", "ออนไลน์", "พัสดุ"]], ["Returns, refund & exchange", ["refund", "return", "exchange", "คืนเงิน", "คืนสินค้า", "คืนไม่ได้", "เปลี่ยนไม่ได้", "เปลี่ยนสินค้า"]], ["Price, promotion & tags", ["price", "promotion", "promo", "discount", "tag", "overcharg", "expensive", "ราคา", "ป้าย", "โปร", "แพง", "ส่วนลด"]], ["Product quality & defects", ["defect", "broken", "broke", "crack", "quality", "torn", "separat", "peel", "ชำรุด", "พัง", "หัก", "ร้าว", "ขาด"]], ["Payment, tax invoice & points", ["tax invoice", "invoice", "receipt", "points", "member", "payment", "pay by", "paid by", "qr", "credit card", "charged", "ใบกำกับ", "ใบเสร็จ", "แต้ม", "สมาชิก", "บัตรเครดิต", "โอนเงิน", "สแกนจ่าย"]], ["Racket stringing service", ["restrung", "string", "racket", "ขึ้นเอ็น", "เอ็น", "ไม้แบด"]], ["Stock, size & range", ["assortment", "didn't find", "did not find", "nothing special", "ไม่พบ", "ไม่มี brand", "no size", "size", "out of stock", "stock", "limited", "selection", "few items", "ไซซ์", "ไซส์", "ไซต์", "ของน้อย", "สินค้าน้อย", "ไม่เยอะ", "ของหมด", "สินค้าหมด", "หมดสต็อก", "หมดทุก", "ไม่มีของ"]], ["Opening hours & store listing", ["no longer exist", "doesn't exist", "does not exist", "moved", "real page", "closing", "closed", "close at", "opening hours", "pm", "ปิดร้าน", "ร้านปิด", "เวลาปิด"]], ["Phone & contact", ["no answer", "didn't answer", "not answer", "hung up", "call", "โทรไม่ติด", "ไม่รับสาย", "โทรไป", "ตัดสาย"]], ["Waiting & slow service", ["wait", "slow", "queue", "long time", "took forever", "รอนาน", "ช้า", "คิว", "ปล่อยให้รอ", "ตั้งนาน"]], ["Staff ignoring / not available", ["ignor", "no one", "nobody", "no staff", "inattentive", "uninterested", "unhelpful", "on their phone", "phone", "chatting", "walked away", "disappeared", "no salesperson", "what staff", "ไม่มีเซล", "not attentive", "not interested", "ไม่สนใจ", "ไม่มีพนักงาน", "ยืนคุย", "เล่นโทรศัพท์", "หายไป", "เดินหนี", "ไม่ใส่ใจ", "ไม่บริการ"]], ["Product knowledge & advice", ["knowledge", "advice", "recommend", "couldn't answer", "could not answer", "didn't know", "did not know", "information", "คำแนะนำ", "แนะนำ", "ไม่รู้เรื่อง", "ไม่สามารถให้คำตอบ"]], ["Staff attitude & manners", ["rude", "attitude", "impolite", "unfriendly", "unwelcoming", "not welcoming", "manner", "annoyed", "irritated", "disgust", "tone", "arrogant", "terrible", "poor service", "bad service", "unwilling", "condescend", "unprofessional", "gossip", "lazy", "crap team", "service-minded", "service minded", "customer service", "staff service", "service failed", "ขี้เกียจ", "บริการไม่ผ่าน", "เต็มใจบริการ", "pressur", "rushed", "หยาบคาย", "พูดจา", "หน้าบึ้ง", "ชักสีหน้า", "สีหน้า", "มารยาท", "หน้าไม่รับ", "เหวี่ยง", "ห้วน", "บริการแย่", "บริการไม่ดี", "บริการห่วย", "ห่วย", "ไม่อยากขาย", "ไม่เต็มใจ", "รำคาญ", "ไม่ยิ้ม", "นินทา", "ไม่อยากบริการ", "เสียความรู้สึก"]]], "provFix": {"กรุงเทพมหานคร": "Bangkok", "พะเยา": "Phayao", "กำแพงเพชร": "Kamphaeng Phet", "พระนครศรีอยุธยา": "Phra Nakhon Si Ayutthaya", "ชลบุรี": "Chon Buri", "สุราษฎร์ธานี": "Surat Thani"}, "region": {"Bangkok": "Bangkok", "Nonthaburi": "BKK Vicinity", "Samut Prakan": "BKK Vicinity", "Pathum Thani": "BKK Vicinity", "Nakhon Pathom": "BKK Vicinity", "Samut Sakhon": "BKK Vicinity", "Chon Buri": "East", "Rayong": "East", "Chachoengsao": "East", "Chanthaburi": "East", "Prachin Buri": "East", "Chiang Mai": "North", "Chiang Rai": "North", "Lampang": "North", "Phitsanulok": "North", "Nakhon Sawan": "North", "Phayao": "North", "Kamphaeng Phet": "North", "Tak": "North", "Udon Thani": "Northeast", "Nakhon Ratchasima": "Northeast", "Ubon Ratchathani": "Northeast", "Surin": "Northeast", "Chaiyaphum": "Northeast", "Roi Et": "Northeast", "Khon Kaen": "Northeast", "Buri Ram": "Northeast", "Mukdahan": "Northeast", "Sakon Nakhon": "Northeast", "Phuket": "South", "Surat Thani": "South", "Songkhla": "South", "Trang": "South", "Nakhon Si Thammarat": "South", "Krabi": "South", "Lopburi": "Central & West", "Phra Nakhon Si Ayutthaya": "Central & West", "Saraburi": "Central & West", "Kanchanaburi": "Central & West", "Suphan Buri": "Central & West", "Ratchaburi": "Central & West", "Prachuap Khiri Khan": "Central & West", "Phetchaburi": "Central & West"}};
+
+let ROWS = [];
+let META = {capped:[], generated:""};
+let CAPPED = new Set();
+let AS_OF = new Date();
+let NEWEST = new Date();
+const NEG_TYPES = {neg:new Set(["Bad","Escalate"]), queue:new Set(["Bad","Escalate","Neutral","Mixed"])};
+const TYPE_LABEL = {Bad:"Bad",Escalate:"Bad, escalate",Neutral:"Neutral",Mixed:"Mixed",Good:"Good"};
+const PRI_RANK = {P1:0,P2:1,P3:2,P4:3};
+
+const reEsc = s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const isAscii = s => /^[\x00-\x7F]*$/.test(s);
+const EN_RISK = CFG.riskEn.map(w=>[w,new RegExp("(?<![a-z])"+reEsc(w)+"(?![a-z])")]);
+const EN_SENS = CFG.sensEn.map(w=>[w,new RegExp("(?<![a-z])"+reEsc(w)+"(?![a-z])")]);
+const THEME_RX = CFG.themes.map(([name,kws])=>[name, kws.map(k=> isAscii(k) ? {re:new RegExp("(?<![a-z])"+reEsc(k))} : {th:k})]);
+
+function wordHits(text, thWords, enRx){
+  if(!text) return [];
+  let t = text; CFG.thFalse.forEach(fw=>{ t = t.split(fw).join(" "); });
+  const low = text.toLowerCase();
+  return thWords.filter(w=>t.includes(w)).concat(enRx.filter(([,re])=>re.test(low)).map(([w])=>w));
+}
+function route(stars, risk, sens){
+  if(sens.length) return ["Escalate","P1"];
+  if(stars===1) return ["Bad","P1"];
+  if(stars===2) return ["Bad","P2"];
+  if(stars===3) return ["Neutral","P3"];
+  if(risk.length) return ["Mixed","P3"];
+  return ["Good","P4"];
+}
+function themeTags(text){
+  if(!text) return [];
+  const low = text.toLowerCase(), out=[];
+  THEME_RX.forEach(([name,kws])=>{ if(kws.some(k=> k.re ? k.re.test(low) : text.includes(k.th))) out.push(name); });
+  return out;
+}
+// P1 deadline = 4 working hours, Mon to Fri 09:00 to 18:00. Others = 24 calendar hours.
+function addWorkingHours(ts, hours){
+  let t = new Date(ts); t.setSeconds(0,0);
+  let remaining = hours*60;
+  let guard = 0;
+  while(remaining>0 && guard++<1000){
+    const day=t.getDay();
+    const start=new Date(t); start.setHours(9,0,0,0);
+    const end=new Date(t); end.setHours(18,0,0,0);
+    if(day===0||day===6||t>=end){ t=new Date(start); t.setDate(t.getDate()+1); continue; }
+    if(t<start) t=start;
+    const avail=Math.floor((end-t)/60000);
+    const step=Math.min(avail,remaining);
+    t=new Date(t.getTime()+step*60000);
+    remaining-=step;
+  }
+  return t;
+}
+const deadlineFor = (created, pri) => pri==="P1" ? addWorkingHours(created,4) : new Date(created.getTime()+24*3600e3);
+
+// ---------- CSV + date parsing ----------
+const norm = h => String(h||"").trim().toLowerCase().replace(/[^a-z0-9]+/g," ").trim();
+function pick(row, names){ for(const n of names){ if(row[n]!==undefined && row[n]!==null) return String(row[n]); } return ""; }
+let SLASH_ORDER = "DMY";
+function detectSlashOrder(samples){
+  let dmy=0, mdy=0;
+  samples.forEach(s=>{ const m=String(s).trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/); if(!m) return; if(+m[1]>12) dmy++; else if(+m[2]>12) mdy++; });
+  SLASH_ORDER = mdy>dmy ? "MDY" : "DMY";
+}
+function parseDate(v){
+  if(v==null) return null;
+  const s=String(v).trim(); if(!s) return null;
+  let y,mo,d,h=0,mi=0,se=0,m;
+  if((m=s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?/))){ [y,mo,d]=[+m[1],+m[2],+m[3]]; h=+(m[4]||0); mi=+(m[5]||0); se=+(m[6]||0); }
+  else if((m=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})(?:,?\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*([AaPp][Mm])?)?/))){
+    const a=+m[1], b=+m[2]; y=+m[3]; if(y<100) y+=2000;
+    if(SLASH_ORDER==="MDY"){ mo=a; d=b; } else { d=a; mo=b; }
+    h=+(m[4]||0); mi=+(m[5]||0); se=+(m[6]||0);
+    if(m[7]){ const pm=m[7].toLowerCase()==="pm"; if(pm&&h<12) h+=12; if(!pm&&h===12) h=0; }
+  }
+  else if(/^\d+(\.\d+)?$/.test(s) && +s>20000){ const ms=Math.round((+s-25569)*86400e3); const u=new Date(ms); return new Date(u.getUTCFullYear(),u.getUTCMonth(),u.getUTCDate(),u.getUTCHours(),u.getUTCMinutes(),u.getUTCSeconds()); }
+  else { const t=new Date(s); return isNaN(t) ? null : t; }
+  if(y>2400) y-=543; // Thai Buddhist year
+  const out=new Date(y,mo-1,d,h,mi,se);
+  return isNaN(out) ? null : out;
+}
+const pad2 = n => String(n).padStart(2,"0");
+
+function buildRows(records){
+  const recs = records.map(r=>{ const o={}; Object.keys(r).forEach(k=>o[norm(k)]=r[k]); return o; });
+  detectSlashOrder(recs.flatMap(r=>[pick(r,["created"]), pick(r,["reply time"])]));
+  const rows=[];
+  recs.forEach((r,i)=>{
+    const store = pick(r,["store"]).trim();
+    const created = parseDate(pick(r,["created","create time","date"]));
+    const stars = Math.round(parseFloat(pick(r,["stars","star","rating"])));
+    if(!store || !created || !(stars>=1 && stars<=5)) return;
+    const text = pick(r,["review","comment","review text"]).trim();
+    const replyAt = parseDate(pick(r,["reply time"]));
+    const replyTxt = pick(r,["owner reply","reply"]).trim();
+    const replied = !!replyAt || !!replyTxt;
+    let prov = pick(r,["province"]).trim(); prov = CFG.provFix[prov] || prov;
+    const risk = wordHits(text, CFG.riskTh, EN_RISK);
+    const sens = wordHits(text, CFG.sensTh, EN_SENS);
+    const [ty,pr] = route(stars, risk, sens);
+    let th = ty!=="Good" ? themeTags(text) : [];
+    if(ty!=="Good" && !text) th=["Rating only (no text)"]; else if(ty!=="Good" && !th.length) th=["Other"];
+    const dl = deadlineFor(created, pr);
+    const rh = replyAt ? Math.round((replyAt-created)/36e4)/10 : null;
+    rows.push({
+      id: (pick(r,["review id","id"]) || ("row"+i)).slice(-10).replace(/[^A-Za-z0-9_-]/g,"") + "_" + i,
+      b: pick(r,["brand"]).trim() || "Unknown", s: store, c: pick(r,["store code"]).trim(), p: prov || "Unknown",
+      rg: CFG.region[prov] || "Other", who: pick(r,["reviewer","name"]).trim(), st: stars, t: text,
+      ty, pr, rk: risk, sn: sens, th, rp: replied, rh, ot: !!(replyAt && replyAt<=dl), re: replyTxt,
+      _d: created, _dl: dl, _rt: replyAt, _m: created.getFullYear()+"-"+pad2(created.getMonth()+1), _lc: text.toLowerCase()
+    });
+  });
+  return rows;
+}
+
+function loadCsv(bust){
+  const url = SHEET_CSV_URL + (bust ? "&_ts="+Date.now() : "");
+  return new Promise((resolve,reject)=>{
+    Papa.parse(url, {download:true, header:true, skipEmptyLines:"greedy",
+      complete: res => resolve(res.data), error: err => reject(err)});
+  });
+}
+
+function showStatus(html, isError){
+  const el=document.getElementById("loadStatus");
+  el.innerHTML=html; el.className = "loadstatus" + (isError?" err":"") + (html?" show":"");
+}
+
+async function boot(bust){
+  const btn=document.getElementById("refreshBtn"); btn.disabled=true; btn.textContent="Loading…";
+  showStatus("Loading reviews from Google Sheets…");
+  try{
+    const records = await loadCsv(bust);
+    const rows = buildRows(records);
+    if(!rows.length) throw new Error("The sheet loaded but no review rows could be read. Check that the published tab has the columns Store, Stars and Created.");
+    ROWS = rows;
+    AS_OF = new Date();
+    NEWEST = new Date(Math.max(...ROWS.map(r=>r._d)));
+    // No Locations sheet in the live source: a store with exactly 20 reviews most likely hit the Google export cap.
+    const cnt={}; ROWS.forEach(r=>cnt[r.s]=(cnt[r.s]||0)+1);
+    CAPPED = new Set(Object.keys(cnt).filter(s=>cnt[s]===20));
+    META.generated = fmtDT(AS_OF);
+    if(state.store && !cnt[state.store]) state.store=null;
+    document.getElementById("asof").innerHTML = `Newest review ${fmtDT(NEWEST)}<br>Loaded ${fmtDT(AS_OF)} · ${fmt(ROWS.length)} reviews`;
+    showStatus("");
+    syncControls(); renderNotes(); render();
+  }catch(e){
+    showStatus(`Could not load the Google Sheet. ${esc(e && e.message ? e.message : String(e))} Check that the sheet is still published to the web as CSV, then press Refresh data.`, true);
+  }finally{
+    btn.disabled=false; btn.textContent="Refresh data";
+  }
+}
+
+
+const state = {period:"365", brand:"All", region:"All", store:null, scope:"neg", theme:null, revType:"all", revReply:"all", q:"", shown:30, sort:{key:"urgency",dir:1}};
+
+const fmt = n => n.toLocaleString("en-US");
+const pct = (a,b,dp=0) => b ? (100*a/b).toFixed(dp)+"%" : "n.a.";
+const esc = s => String(s).replace(/[&<>"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const fmtDate = d => d.toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"});
+const fmtDT = d => fmtDate(d)+" "+String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0");
+const ageTxt = h => h<48 ? Math.round(h)+" h" : Math.round(h/24)+" days";
+const MON = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const monLab = m => MON[+m.slice(5)-1]+" "+m.slice(2,4);
+
+function periodStart(){
+  const p=state.period;
+  if(p==="all") return new Date(2000,0,1);
+  if(p==="ytd") return new Date(AS_OF.getFullYear(),0,1);
+  const d=new Date(AS_OF); d.setDate(d.getDate()-Number(p)); return d;
+}
+function baseRows(ignoreStore=false, ignoreRegion=false){
+  const s=periodStart();
+  return ROWS.filter(r=> r._d>=s && (state.brand==="All"||r.b===state.brand) && (ignoreRegion||state.region==="All"||r.rg===state.region) && (ignoreStore||!state.store||r.s===state.store));
+}
+const isNeg = r => NEG_TYPES[state.scope].has(r.ty);
+const isDue = r => r._dl <= AS_OF;
+const lateOrOpen = r => !r.rp ? "open" : (r.ot ? "ok" : "late");
+
+// ---------- tiles ----------
+function renderTiles(rows){
+  const neg=rows.filter(isNeg);
+  const avg = rows.length ? rows.reduce((a,r)=>a+r.st,0)/rows.length : 0;
+  const escN = rows.filter(r=>r.ty==="Escalate").length;
+  const open = neg.filter(r=>!r.rp);
+  const openOver = open.filter(isDue);
+  const due = neg.filter(isDue);
+  const onTime = due.filter(r=>r.rp && r.ot).length;
+  const replied = neg.filter(r=>r.rp && r.rh!=null).map(r=>r.rh).sort((a,b)=>a-b);
+  const med = replied.length ? replied[Math.floor(replied.length/2)] : null;
+  const scopeTxt = state.scope==="neg" ? "1 to 2 star or sensitive word" : "everything routed to an agent";
+  const tiles = [
+    {k:"Reviews in period", v:fmt(rows.length), s:`${fmt(new Set(rows.map(r=>r.s)).size)} stores`, c:"t-acc"},
+    {k:"Average rating", v:rows.length?avg.toFixed(2)+" ★":"n.a.", s:`${pct(rows.filter(r=>r.st>=4).length,rows.length)} are 4 to 5 star`, c:"t-acc"},
+    {k:"Negative reviews", v:fmt(neg.length), s:`${pct(neg.length,rows.length)} of reviews, ${scopeTxt}`, c:"t-bad"},
+    {k:"Escalations to CX manager", v:fmt(escN), s:"sensitive word found (P1)", c:"t-esc"},
+    {k:"Negatives with no reply", v:fmt(open.length), s:`${fmt(openOver.length)} past the reply deadline`, c:"t-bad"},
+    {k:"Negatives replied on time", v:pct(onTime,due.length), s: med==null?"no replies yet":`median first reply ${ageTxt(med)}`, c:"t-mixed"},
+  ];
+  document.getElementById("tiles").innerHTML = tiles.map(t=>`<div class="tile ${t.c}"><div class="k">${t.k}</div><div class="v">${t.v}</div><div class="s">${t.s}</div></div>`).join("");
+}
+
+// ---------- months helper ----------
+function monthList(rows){
+  if(!rows.length) return [];
+  let start = periodStart();
+  const minD = new Date(Math.min(...rows.map(r=>r._d)));
+  if(start<minD) start=minD;
+  const out=[]; let y=start.getFullYear(), m=start.getMonth();
+  const ey=AS_OF.getFullYear(), em=AS_OF.getMonth();
+  while(y<ey || (y===ey && m<=em)){ out.push(`${y}-${String(m+1).padStart(2,"0")}`); m++; if(m>11){m=0;y++;} }
+  return out.slice(-24);
+}
+
+// ---------- trend chart ----------
+function renderTrend(rows){
+  const months = monthList(rows);
+  const el=document.getElementById("trendChart");
+  document.getElementById("trendNote").textContent = months.length>=24 && state.period==="all" ? "Latest 24 months shown" : "";
+  if(!months.length){el.innerHTML='<div class="empty-note">No reviews in this selection.</div>';return;}
+  const order=["Escalate","Bad","Neutral","Mixed"];
+  const col={Escalate:"var(--esc)",Bad:"var(--bad)",Neutral:"var(--neutral)",Mixed:"var(--mixed)"};
+  const agg = months.map(m=>{ const rs=rows.filter(r=>r._m===m); const o={m,total:rs.length,neg:rs.filter(isNeg).length}; order.forEach(t=>o[t]=rs.filter(r=>r.ty===t).length); return o; });
+  const W=620,H=250,L=36,R=40,T=14,B=30, iw=W-L-R, ih=H-T-B;
+  const maxStack = Math.max(1,...agg.map(a=>order.reduce((s,t)=>s+a[t],0)));
+  const nice = niceMax(maxStack);
+  const bw = iw/months.length;
+  let g = "";
+  for(let i=0;i<=4;i++){ const v=nice*i/4, y=T+ih-ih*v/nice; g+=`<line x1="${L}" x2="${W-R}" y1="${y}" y2="${y}" stroke="var(--line)" stroke-width="1"/><text x="${L-6}" y="${y+4}" text-anchor="end" font-size="10" fill="var(--muted)">${Math.round(v)}</text>`; }
+  for(let i=0;i<=4;i++){ const y=T+ih-ih*i/4; g+=`<text x="${W-R+6}" y="${y+4}" font-size="10" fill="var(--muted)">${i*25}%</text>`; }
+  const step = Math.ceil(months.length/12);
+  agg.forEach((a,i)=>{
+    let y=T+ih; const x=L+i*bw+bw*0.15, w=bw*0.7;
+    order.forEach(t=>{ if(!a[t]) return; const h=ih*a[t]/nice; y-=h; g+=`<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${col[t]}"><title>${monLab(a.m)}: ${a[t]} ${TYPE_LABEL[t]}</title></rect>`; });
+    if(i%step===0) g+=`<text x="${x+w/2}" y="${H-10}" text-anchor="middle" font-size="10" fill="var(--muted)">${monLab(a.m)}</text>`;
+  });
+  const pts = agg.map((a,i)=> a.total ? [L+i*bw+bw/2, T+ih-ih*Math.min(1,a.neg/a.total)] : null);
+  let d=""; pts.forEach(p=>{ if(p) d+=(d?"L":"M")+p[0].toFixed(1)+","+p[1].toFixed(1); });
+  g+=`<path d="${d}" fill="none" stroke="var(--ink)" stroke-width="1.8"/>`;
+  pts.forEach((p,i)=>{ if(p) g+=`<circle cx="${p[0]}" cy="${p[1]}" r="${i===pts.length-1?4:2.5}" fill="var(--surface)" stroke="var(--ink)" stroke-width="1.5"><title>${monLab(agg[i].m)}: negative ${pct(agg[i].neg,agg[i].total)} of ${agg[i].total} reviews</title></circle>`; });
+  const last=agg[agg.length-1]; const lp=pts[pts.length-1];
+  if(lp) g+=`<text x="${Math.min(lp[0],W-R-4)}" y="${Math.max(lp[1]-8,T+8)}" text-anchor="end" font-size="11" font-weight="600" fill="var(--ink)">${pct(last.neg,last.total)}</text>`;
+  el.innerHTML=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Monthly reviews needing an agent">${g}</svg>`;
+}
+function niceMax(v){ const p=Math.pow(10,Math.floor(Math.log10(v))); if(v<=4) return 4; for(const m of [1,2,4,6,8,10]){ if(m*p>=v) return m*p; } return 10*p; }
+
+// ---------- SLA chart ----------
+function renderSla(rows){
+  const neg=rows.filter(r=>isNeg(r) && isDue(r));
+  const months=monthList(rows);
+  const el=document.getElementById("slaChart");
+  if(!months.length||!neg.length){el.innerHTML='<div class="empty-note">No negative reviews past their deadline in this selection.</div>';return;}
+  const agg=months.map(m=>{const rs=neg.filter(r=>r._m===m); return {m,n:rs.length,ok:rs.filter(r=>r.rp&&r.ot).length,late:rs.filter(r=>r.rp&&!r.ot).length,open:rs.filter(r=>!r.rp).length};});
+  const W=620,H=250,L=36,R=12,T=14,B=30, iw=W-L-R, ih=H-T-B, bw=iw/months.length;
+  let g="";
+  for(let i=0;i<=4;i++){ const y=T+ih-ih*i/4; g+=`<line x1="${L}" x2="${W-R}" y1="${y}" y2="${y}" stroke="var(--line)"/><text x="${L-6}" y="${y+4}" text-anchor="end" font-size="10" fill="var(--muted)">${i*25}%</text>`; }
+  const step=Math.ceil(months.length/12);
+  agg.forEach((a,i)=>{
+    const x=L+i*bw+bw*0.15, w=bw*0.7; let y=T+ih;
+    if(a.n){ [["ok","var(--good)","within deadline"],["late","var(--mixed)","late"],["open","var(--bad)","no reply"]].forEach(([k,c,lab])=>{ if(!a[k])return; const h=ih*a[k]/a.n; y-=h; g+=`<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${c}"><title>${monLab(a.m)}: ${a[k]} of ${a.n} ${lab}</title></rect>`; }); }
+    else g+=`<rect x="${x}" y="${T+ih-1}" width="${w}" height="1" fill="var(--line)"/>`;
+    if(i%step===0) g+=`<text x="${x+w/2}" y="${H-10}" text-anchor="middle" font-size="10" fill="var(--muted)">${monLab(a.m)}</text>`;
+  });
+  el.innerHTML=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Reply timeliness for negative reviews by month">${g}</svg>`;
+}
+
+// ---------- themes ----------
+function renderThemes(rows){
+  const neg=rows.filter(isNeg);
+  const cnt={}; neg.forEach(r=>r.th.forEach(t=>cnt[t]=(cnt[t]||0)+1));
+  const list=Object.entries(cnt).sort((a,b)=>b[1]-a[1]);
+  const el=document.getElementById("themes");
+  if(!list.length){el.innerHTML='<div class="empty-note">No negative reviews in this selection.</div>';return;}
+  const max=Math.max(...list.map(x=>x[1]));
+  el.innerHTML=list.map(([t,n])=>`<div class="hbar ${state.theme===t?"on":""}" data-theme="${esc(t)}" role="button" tabindex="0"><div class="lab">${esc(t)}</div><div class="track"><div class="fill" style="width:${100*n/max}%;${t==="Rating only (no text)"||t==="Other"?"background:var(--neutral)":""}"></div></div><div class="num"><b>${n}</b> · ${pct(n,neg.length)}</div></div>`).join("");
+  el.querySelectorAll(".hbar").forEach(b=>{ const f=()=>{ state.theme = state.theme===b.dataset.theme?null:b.dataset.theme; state.shown=30; render(); }; b.onclick=f; b.onkeydown=e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();f();}}; });
+}
+
+// ---------- regions + stars ----------
+function renderRegions(){
+  const rows=baseRows(false,true);
+  const by={}; rows.forEach(r=>{ (by[r.rg]=by[r.rg]||{n:0,neg:0}); by[r.rg].n++; if(isNeg(r)) by[r.rg].neg++; });
+  const list=Object.entries(by).sort((a,b)=>b[1].neg/b[1].n - a[1].neg/a[1].n);
+  const max=Math.max(0.01,...list.map(([,v])=>v.neg/v.n));
+  document.getElementById("regions").innerHTML = list.map(([k,v])=>`<div class="regrow ${state.region===k?"on":""}" data-r="${esc(k)}" role="button" tabindex="0"><div class="lab" style="font-size:13px">${esc(k)}</div><div class="track" style="height:10px;background:var(--neutral-soft);border-radius:3px;overflow:hidden"><div style="height:100%;width:${100*(v.neg/v.n)/max}%;background:var(--accent)"></div></div><div class="num" style="font-size:12.5px;text-align:right;color:var(--muted);font-variant-numeric:tabular-nums"><b style="color:var(--ink)">${pct(v.neg,v.n)}</b> of ${v.n}</div></div>`).join("") || '<div class="empty-note">No reviews.</div>';
+  document.querySelectorAll("#regions .regrow").forEach(b=>{ const f=()=>{ state.region = state.region===b.dataset.r?"All":b.dataset.r; state.store=null; syncControls(); render(); }; b.onclick=f; b.onkeydown=e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();f();}}; });
+}
+function renderStars(rows){
+  const c=[0,0,0,0,0,0]; rows.forEach(r=>c[r.st]++);
+  const n=rows.length||1;
+  const colr={1:"var(--bad)",2:"var(--bad)",3:"var(--neutral)",4:"var(--good)",5:"var(--good)"};
+  document.getElementById("starNote").textContent = rows.length? `${fmt(rows.filter(r=>!r.t).length)} reviews have stars only` : "";
+  document.getElementById("starmix").innerHTML = [5,4,3,2,1].map(s=>`<div class="regrow" style="cursor:default"><div style="font-size:13px">${s} star</div><div style="height:10px;background:var(--neutral-soft);border-radius:3px;overflow:hidden"><div style="height:100%;width:${100*c[s]/n}%;background:${colr[s]};opacity:${s===2||s===4?0.7:1}"></div></div><div style="font-size:12.5px;text-align:right;color:var(--muted);font-variant-numeric:tabular-nums"><b style="color:var(--ink)">${fmt(c[s])}</b> · ${pct(c[s],rows.length)}</div></div>`).join("");
+}
+
+// ---------- store table ----------
+const COLS=[
+  {k:"store",l:"Store"},{k:"rg",l:"Region"},{k:"n",l:"Reviews",num:1},{k:"avg",l:"Avg ★",num:1},{k:"neg",l:"Negative",num:1},{k:"negp",l:"Negative share",num:1},
+  {k:"p1",l:"P1",num:1},{k:"open",l:"No reply",num:1},{k:"ontime",l:"On-time reply",num:1},{k:"top",l:"Top issue"},{k:"last",l:"Last negative"},{k:"urgency",l:"Status"}
+];
+function storeStats(){
+  const rows=baseRows(true);
+  const by={};
+  rows.forEach(r=>{ (by[r.s]=by[r.s]||[]).push(r); });
+  return Object.entries(by).map(([s,rs])=>{
+    const neg=rs.filter(isNeg); const due=neg.filter(isDue);
+    const ot=due.filter(r=>r.rp&&r.ot).length;
+    const th={}; neg.forEach(r=>r.th.forEach(t=>{ if(t!=="Rating only (no text)"&&t!=="Other") th[t]=(th[t]||0)+1; }));
+    const top=Object.entries(th).sort((a,b)=>b[1]-a[1])[0];
+    const open=neg.filter(r=>!r.rp);
+    const p1open=rs.filter(r=>r.pr==="P1"&&!r.rp&&isDue(r)).length;
+    const negp = neg.length/rs.length;
+    let status="ok", rank=2;
+    if(p1open>0 || (negp>=0.4 && neg.length>=3)){status="crit";rank=0;}
+    else if(negp>=0.2 || open.length>0){status="watch";rank=1;}
+    const last = neg.length? new Date(Math.max(...neg.map(r=>r._d))) : null;
+    return {store:s, b:rs[0].b, rg:rs[0].rg, p:rs[0].p, n:rs.length, avg:rs.reduce((a,r)=>a+r.st,0)/rs.length, neg:neg.length, negp,
+      p1:rs.filter(r=>r.pr==="P1").length, open:open.length, p1open, due:due.length, ontime: due.length? ot/due.length : null,
+      top: top? top[0] : (neg.length? "Stars only / other" : ""), last, status, rank,
+      urgency: rank*1e6 - p1open*1e4 - open.length*100 - negp*10};
+  });
+}
+function renderStores(){
+  const list=storeStats();
+  const {key,dir}=state.sort;
+  list.sort((a,b)=>{ let x=a[key], y=b[key]; if(key==="last"){x=x?x.getTime():0;y=y?y.getTime():0;} if(x==null)x=-1; if(y==null)y=-1; if(typeof x==="string") return dir*x.localeCompare(y); return dir*(x-y); });
+  const tbl=document.getElementById("storeTbl");
+  tbl.querySelector("thead").innerHTML="<tr>"+COLS.map(c=>`<th class="${c.num?"num":""}" data-k="${c.k}" tabindex="0">${c.l}<span class="arr">${state.sort.key===c.k?(state.sort.dir>0?"▲":"▼"):""}</span></th>`).join("")+"</tr>";
+  const stLab={crit:"Critical",watch:"Watch",ok:"On track"};
+  tbl.querySelector("tbody").innerHTML = list.map(s=>`<tr class="${state.store===s.store?"sel":""}" data-s="${esc(s.store)}" tabindex="0">
+    <td class="store">${esc(s.store)}${CAPPED.has(s.store)?'<span class="cap" title="Only the latest 20 reviews were exported">20 max</span>':""}<small>${esc(s.b)} · ${esc(s.p)}</small></td>
+    <td>${esc(s.rg)}</td><td class="num">${s.n}</td><td class="num">${s.avg.toFixed(1)}</td><td class="num">${s.neg}</td>
+    <td class="num"><span class="negbar"><span>${pct(s.neg,s.n)}</span><span class="trk"><span class="fl" style="display:block;width:${100*s.negp}%"></span></span></span></td>
+    <td class="num">${s.p1||""}</td><td class="num ${s.open?"overdue":""}">${s.open||""}</td>
+    <td class="num">${s.ontime==null?'<span style="color:var(--muted)">n.a.</span>':Math.round(100*s.ontime)+"%"}</td>
+    <td>${esc(s.top)}</td><td>${s.last?fmtDate(s.last):""}</td><td><span class="status st-${s.status}">${stLab[s.status]}</span></td></tr>`).join("") || `<tr><td colspan="12" class="empty-note">No stores in this selection.</td></tr>`;
+  tbl.querySelectorAll("th").forEach(th=>{ const f=()=>{ const k=th.dataset.k; if(state.sort.key===k) state.sort.dir*=-1; else state.sort={key:k,dir:(k==="store"||k==="rg"||k==="top"||k==="urgency")?1:-1}; renderStores(); }; th.onclick=f; th.onkeydown=e=>{if(e.key==="Enter"){f();}}; });
+  tbl.querySelectorAll("tbody tr[data-s]").forEach(tr=>{ const f=()=>{ state.store = state.store===tr.dataset.s?null:tr.dataset.s; state.shown=30; syncControls(); render(); window.scrollTo({top:0,behavior:"smooth"}); }; tr.onclick=f; tr.onkeydown=e=>{if(e.key==="Enter"){f();}}; });
+}
+
+// ---------- open queue ----------
+function renderQueue(rows){
+  const q=rows.filter(r=>r.ty!=="Good" && !r.rp && (state.scope==="queue"||isNeg(r)) && (!state.theme||r.th.includes(state.theme)));
+  q.sort((a,b)=> PRI_RANK[a.pr]-PRI_RANK[b.pr] || a._d-b._d);
+  const over=q.filter(isDue).length;
+  document.getElementById("queueNote").textContent = `${fmt(q.length)} reviews, ${fmt(over)} past deadline. Oldest P1 first.`;
+  document.querySelector("#queueTbl tbody").innerHTML = q.slice(0,200).map(r=>{
+    const wait=(AS_OF-r._d)/36e5; const od=isDue(r);
+    return `<tr data-id="${r.id}" tabindex="0"><td><span class="pri ${r.pr}">${r.pr}</span></td><td><span class="tag ty-${r.ty}">${TYPE_LABEL[r.ty]}</span></td><td class="store" style="min-width:200px">${esc(r.s)}</td><td class="num">${r.st}</td><td>${fmtDT(r._d)}</td><td class="${od?"overdue":""}">${fmtDT(r._dl)}${od?" · overdue":""}</td><td class="num">${ageTxt(wait)}</td><td style="white-space:normal;min-width:160px">${esc(r.th.join(", "))}</td></tr>`;
+  }).join("") || `<tr><td colspan="8" class="empty-note">Nothing waiting for a reply in this selection.</td></tr>`;
+  document.querySelectorAll("#queueTbl tbody tr[data-id]").forEach(tr=>{ const f=()=>{ state.revType="all"; state.revReply="all"; state.q=""; const r=ROWS.find(x=>x.id===tr.dataset.id); state.store=r.s; syncControls(); render(); const el=document.getElementById("rev-"+r.id); if(el){el.scrollIntoView({behavior:"smooth",block:"center"}); el.style.outline="2px solid var(--accent)";} }; tr.onclick=f; tr.onkeydown=e=>{if(e.key==="Enter")f();}; });
+}
+
+// ---------- review explorer ----------
+function highlight(text, r){
+  let h=esc(text);
+  const words=[...r.sn.map(w=>[w,true]), ...r.rk.map(w=>[w,false])].sort((a,b)=>b[0].length-a[0].length);
+  if(!words.length) return h;
+  const parts=words.map(([w])=>esc(w).replace(/[.*+?^${}()|[\]\\]/g,"\\$&"));
+  const re=new RegExp("("+parts.join("|")+")","gi");
+  const sens=new Set(r.sn.map(w=>w.toLowerCase()));
+  return h.replace(re, m=>{ const isLatin=/^[\x00-\x7F]+$/.test(m); return `<mark class="${sens.has(m.toLowerCase())?"sens":""}">${m}</mark>`; });
+}
+function renderReviews(rows){
+  let rs=rows.filter(r=>isNeg(r));
+  if(state.revType!=="all") rs=rs.filter(r=>r.ty===state.revType);
+  if(state.theme) rs=rs.filter(r=>r.th.includes(state.theme));
+  if(state.revReply==="open") rs=rs.filter(r=>!r.rp);
+  if(state.revReply==="late") rs=rs.filter(r=>r.rp && !r.ot);
+  if(state.q){ const q=state.q.toLowerCase(); rs=rs.filter(r=>r._lc.includes(q)||r.s.toLowerCase().includes(q)); }
+  rs.sort((a,b)=>b._d-a._d);
+  document.getElementById("revNote").textContent = `${fmt(rs.length)} reviews, newest first${state.theme?` · issue: ${state.theme}`:""}`;
+  const show=rs.slice(0,state.shown);
+  document.getElementById("reviews").innerHTML = show.map(r=>{
+    const stars="★".repeat(r.st)+`<span class="off">${"★".repeat(5-r.st)}</span>`;
+    const lo=lateOrOpen(r);
+    const replyInfo = lo==="open" ? `<span class="${isDue(r)?"overdue":""}">No reply${isDue(r)?", overdue":""}</span>` : `Replied after ${ageTxt(r.rh)} ${lo==="ok"?"(on time)":'<span class="overdue">(late)</span>'}`;
+    const long=(r.t||"").length>320;
+    return `<article class="rev ${r.ty}" id="rev-${r.id}">
+      <div class="meta"><span class="tag ty-${r.ty}">${TYPE_LABEL[r.ty]}</span><span class="pri ${r.pr}">${r.pr}</span><span class="stars" aria-label="${r.st} stars">${stars}</span><b>${esc(r.s)}</b><span>${fmtDT(r._d)}</span><span>${esc(r.who)}</span><span>${replyInfo}</span></div>
+      <div class="txt ${long?"clamp":""} ${r.t?"":"empty"}">${r.t?highlight(r.t,r):"Rating only, no text"}</div>
+      <div class="chips">${r.th.map(t=>`<button class="chip" data-theme="${esc(t)}">${esc(t)}</button>`).join("")}${long?'<button class="linkbtn" data-exp="1">Show full review</button>':""}${r.re?'<button class="linkbtn" data-rep="1">Show store reply</button>':""}</div>
+      ${r.re?`<div class="reply" hidden>Store reply: ${esc(r.re)}</div>`:""}
+    </article>`;
+  }).join("") || '<div class="empty-note">No reviews match these filters.</div>';
+  document.getElementById("moreBtn").style.display = rs.length>state.shown ? "" : "none";
+  document.querySelectorAll("#reviews .chip").forEach(c=>c.onclick=()=>{ state.theme=c.dataset.theme; state.shown=30; render(); });
+  document.querySelectorAll("#reviews [data-exp]").forEach(b=>b.onclick=()=>{ const t=b.closest(".rev").querySelector(".txt"); const c=t.classList.toggle("clamp"); b.textContent=c?"Show full review":"Show less"; });
+  document.querySelectorAll("#reviews [data-rep]").forEach(b=>b.onclick=()=>{ const t=b.closest(".rev").querySelector(".reply"); t.hidden=!t.hidden; b.textContent=t.hidden?"Show store reply":"Hide store reply"; });
+}
+
+// ---------- focus bar ----------
+function renderFocus(){
+  const fb=document.getElementById("focusbar"); const items=[];
+  if(state.store) items.push(["store",`Store: ${state.store}`]);
+  if(state.region!=="All") items.push(["region",`Region: ${state.region}`]);
+  if(state.theme) items.push(["theme",`Issue: ${state.theme}`]);
+  fb.classList.toggle("show",items.length>0);
+  fb.innerHTML = items.length ? `<span>Focused on</span>`+items.map(([k,l])=>`<button class="pillbtn" data-k="${k}">${esc(l)} ✕</button>`).join("")+(items.length>1?'<button class="linkbtn" data-k="all">Clear all</button>':"") : "";
+  fb.querySelectorAll("[data-k]").forEach(b=>b.onclick=()=>{ const k=b.dataset.k; if(k==="store"||k==="all") state.store=null; if(k==="region"||k==="all") state.region="All"; if(k==="theme"||k==="all") state.theme=null; syncControls(); render(); });
+}
+
+// ---------- controls ----------
+function fillSelect(id, values, cur, allLabel){
+  const el=document.getElementById(id);
+  el.innerHTML=`<option value="All">${allLabel}</option>`+values.map(v=>`<option ${v===cur?"selected":""}>${esc(v)}</option>`).join("");
+}
+function syncControls(){
+  const brands=[...new Set(ROWS.map(r=>r.b))].sort();
+  fillSelect("brandSel",brands,state.brand,"All brands");
+  const regs=[...new Set(ROWS.map(r=>r.rg))].sort();
+  fillSelect("regionSel",regs,state.region,"All regions");
+  const stores=[...new Set(ROWS.filter(r=>(state.brand==="All"||r.b===state.brand)&&(state.region==="All"||r.rg===state.region)).map(r=>r.s))].sort();
+  if(state.store && !stores.includes(state.store)) state.store=null;
+  fillSelect("storeSel",stores,state.store,"All stores");
+  document.getElementById("storeSel").value = state.store||"All";
+  document.getElementById("brandSel").value = state.brand;
+  document.getElementById("regionSel").value = state.region;
+  segSync("revTypeSeg",state.revType); segSync("revReplySeg",state.revReply); segSync("scopeSeg",state.scope); segSync("periodSeg",state.period);
+  document.getElementById("revSearch").value=state.q;
+}
+function segSync(id,v){ document.querySelectorAll(`#${id} button`).forEach(b=>b.classList.toggle("on",b.dataset.v===v)); }
+function seg(id,key,after){ document.querySelectorAll(`#${id} button`).forEach(b=>b.onclick=()=>{ state[key]=b.dataset.v; state.shown=30; segSync(id,state[key]); if(after) after(); render(); }); }
+seg("periodSeg","period"); seg("scopeSeg","scope"); seg("revTypeSeg","revType"); seg("revReplySeg","revReply");
+document.getElementById("brandSel").onchange=e=>{ state.brand=e.target.value; state.store=null; syncControls(); render(); };
+document.getElementById("regionSel").onchange=e=>{ state.region=e.target.value; state.store=null; syncControls(); render(); };
+document.getElementById("storeSel").onchange=e=>{ state.store=e.target.value==="All"?null:e.target.value; state.shown=30; render(); };
+document.getElementById("revSearch").oninput=e=>{ state.q=e.target.value.trim(); state.shown=30; renderReviews(baseRows()); };
+document.getElementById("moreBtn").onclick=()=>{ state.shown+=30; renderReviews(baseRows()); };
+
+function renderNotes(){
+  const all=ROWS;
+  const mixed=all.filter(r=>r.ty==="Mixed");
+  const butOnly=mixed.filter(r=>r.rk.every(w=>w==="but"||w==="แต่")).length;
+  const escFP=all.filter(r=>r.ty==="Escalate" && r.st>=4).length;
+  document.getElementById("notes").innerHTML = `
+  <p><b>Source.</b> Live from the published Google Sheet (CSV), read each time the page opens or Refresh data is pressed: ${fmt(all.length)} reviews across ${new Set(all.map(r=>r.s)).size} stores, posted ${fmtDate(new Date(Math.min(...all.map(r=>r._d))))} to ${fmtDate(NEWEST)}. Periods, deadlines and "overdue" are measured against the time the page loaded, ${fmtDT(AS_OF)}. Google can take about 5 minutes to publish sheet edits.</p>
+  <p><b>20-review cap.</b> ${CAPPED.size} stores have exactly 20 reviews, which usually means the Google Takeout export cut off their older reviews. Compare those stores on recent periods; their all-time figures are likely incomplete.</p>
+  <p><b>Words are matched on the full review text</b>, which holds both the original and Google's translation, so reviews in other languages are caught through the English translation. Each review card highlights the words that triggered it: <mark>risk word</mark> and <mark class="sens">sensitive word</mark>.</p>
+  <p><b>Thai word clean-up.</b> Thai has no spaces between words, so before matching, these longer words are skipped because they contain a risk word by accident: เช้า and ช้าง (contain ช้า), พังงา (พัง), แต่ง, แต่ละ and ตั้งแต่ (แต่).</p>
+  <p><b>Working hours.</b> The logic says "4 working hours" for P1 without defining them. This page uses Monday to Friday, 09:00 to 18:00. Other priorities use 24 calendar hours. Many older reviews were answered in one batch in July 2026, so reply times before then look late.</p>
+  <p><b>Issue themes</b> are not in the logic file. They are keyword groups (Thai and English) built for this page, and one review can carry several. "Rating only" means 1 to 3 stars with no text.</p>
+  <p><b>Worth reviewing in the logic.</b> "but" and "แต่" alone account for ${butOnly} of the ${mixed.length} Mixed reviews, most of them praise ("small shop, but good selection"). "credit card" also sends ${escFP} 4 to 5 star review(s) to escalation. Tightening these two would cut agent workload without missing complaints.</p>
+  <p><b>Not covered.</b> The "Report" route (spam, fake, not a real visit) needs a human read, so it is not auto-detected here.</p>`;
+}
+
+function render(){
+  const rows=baseRows();
+  renderFocus(); renderTiles(rows); renderTrend(rows); renderSla(rows); renderThemes(rows); renderRegions(); renderStars(rows);
+  renderStores(); renderQueue(rows); renderReviews(rows);
+}
+document.getElementById("refreshBtn").onclick=()=>boot(true);
+boot(false);
+</script>
+</body>
+</html>
